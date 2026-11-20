@@ -1,4 +1,5 @@
 import os from 'node:os';
+import { createHash } from 'node:crypto';
 import { checkoutJobRepository, isRepositoryAllowed } from './repositoryCheckout.js';
 import { COMMAND_ALLOWLIST } from './security.js';
 import { assertDockerRunnerReady, dockerNetworkFromEnv, executeDockerJob, runnerImageFromEnv } from './dockerRunner.js';
@@ -160,7 +161,7 @@ export async function enqueueJobRun(params: {
 
   try {
     const result = await queueApi<{ job: any }>('jobs', {
-      idempotencyKey: `${params.repo}:${params.branch}:${params.commitSha}:${params.prNumber ?? 0}`,
+      idempotencyKey: createHash('sha256').update([params.repo, params.branch, params.commitSha, String(params.prNumber ?? 0), ...params.stepIds].join('|')).digest('hex'),
       repository: params.repo.trim(),
       branch: params.branch.trim(),
       commitSha: params.commitSha.trim(),
