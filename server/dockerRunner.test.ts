@@ -25,3 +25,13 @@ test('job container is non-privileged, non-root, resource limited and has no hos
   assert.doesNotMatch(joined, /--privileged|--volume| -v |docker\.sock|--network host/);
   assert.equal(args.includes('--privileged'), false);
 });
+
+test('Docker arguments never request host mounts, devices, privileged mode or host networking', () => {
+  const args = buildDockerCreateArgs('job-boundary', digestImage, 'none');
+  assert.equal(args.includes('--privileged'), false);
+  assert.equal(args.some((arg) => arg === '--volume' || arg === '-v' || arg === '--mount' || arg === '--device'), false);
+  assert.equal(args.includes('/var/run/docker.sock'), false);
+  assert.equal(args[args.indexOf('--network') + 1], 'none');
+  assert.equal(args[args.indexOf('--user') + 1], '10001:10001');
+  assert.equal(args[args.indexOf('--pids-limit=128')], '--pids-limit=128');
+});
