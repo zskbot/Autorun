@@ -1,7 +1,7 @@
 import os from 'node:os';
 import { checkoutJobRepository, isRepositoryAllowed } from './repositoryCheckout.js';
 import { COMMAND_ALLOWLIST } from './security.js';
-import { dockerNetworkFromEnv, executeDockerJob, runnerImageFromEnv } from './dockerRunner.js';
+import { assertDockerRunnerReady, dockerNetworkFromEnv, executeDockerJob, runnerImageFromEnv } from './dockerRunner.js';
 
 type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 interface JobRecord {
@@ -303,6 +303,13 @@ async function processClaimedJob(job: QueueJob): Promise<void> {
 }
 
 async function runnerLoop(): Promise<void> {
+  try {
+    await assertDockerRunnerReady();
+  } catch (error) {
+    console.error('AutoRun Docker runner preflight failed; queue polling is disabled:', error instanceof Error ? error.message : 'Docker unavailable');
+    runnerStarted = false;
+    return;
+  }
   while (process.env.AUTORUN_ENABLE_DOCKER_EXECUTION === 'true') {
     try {
       const claim = await queueApi<{ job: QueueJob | null }>('claim', { runnerId: RUNNER_ID, leaseSeconds: 90 });
