@@ -18,6 +18,7 @@ import {
   getLiveWorkspaceRuns,
   getRunnerHeartbeat,
 } from './server/executionAgent.js';
+import { isRepositoryAllowed } from './server/repositoryCheckout.js';
 import {
   COMMAND_ALLOWLIST,
   requireControlAuth,
@@ -101,6 +102,17 @@ app.post(
     const pullRequestAction = typeof payload.action === 'string' ? payload.action : '';
     const approvedPullRequestAction = ['opened', 'reopened', 'synchronize'].includes(pullRequestAction);
     if (eventType === 'push' || (eventType === 'pull_request' && approvedPullRequestAction)) {
+      if (process.env.AUTORUN_ENABLE_UNSANDBOXED_EXECUTION !== 'true' || !isRepositoryAllowed(repo)) {
+        res.status(202).json({
+          accepted: true,
+          eventType,
+          ignored: true,
+          reason: process.env.AUTORUN_ENABLE_UNSANDBOXED_EXECUTION !== 'true'
+            ? 'Execution is disabled by the safe default.'
+            : 'Repository is not allowlisted.',
+        });
+        return;
+      }
       const enqueued = await enqueueJobRun({
         repo,
         branch,
