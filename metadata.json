@@ -1,0 +1,6 @@
+{
+  "name": "Kinetix Ops",
+  "description": "Enterprise DevOps control plane for AWS CI/CD runners, Docker staging deployments, Prometheus & Grafana real-time monitoring, E2EE/MFA security vault, daily backups, autorun-free tasks, technical runbooks, and AI operations agents.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
