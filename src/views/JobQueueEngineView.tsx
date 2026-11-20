@@ -46,10 +46,10 @@ export const JobQueueEngineView: React.FC<JobQueueEngineViewProps> = ({
   const [events, setEvents] = useState<AutorunEventRecord[]>([]);
   const [eventsError, setEventsError] = useState<string | null>(null);
 
-  const [repo, setRepo] = useState('zskbot/OCodeJS-Auth');
-  const [branch, setBranch] = useState('feat/auth-ci-check');
+  const [repo, setRepo] = useState('OCodejs/mcp.auth.ocodejs');
+  const [branch, setBranch] = useState('main');
   const [prNumber, setPrNumber] = useState('17');
-  const [commitSha, setCommitSha] = useState('pr17-head');
+  const [commitSha, setCommitSha] = useState('');
   const [selectedSteps, setSelectedSteps] = useState<string[]>(['typecheck', 'lint']);
 
   const [statusFilter, setStatusFilter] = useState<'all' | JobStatus>('all');
@@ -109,16 +109,16 @@ export const JobQueueEngineView: React.FC<JobQueueEngineViewProps> = ({
 
   const applyPreset = (preset: 'ocodejs-pr17' | 'local-check') => {
     if (preset === 'ocodejs-pr17') {
-      setRepo('zskbot/OCodeJS-Auth');
-      setBranch('pr-17');
+      setRepo('OCodejs/mcp.auth.ocodejs');
+      setBranch('main');
       setPrNumber('17');
-      setCommitSha('pr17-staging');
+      setCommitSha('');
       setSelectedSteps(['npm_ci', 'unit_tests', 'prisma_validate', 'typecheck', 'nextjs_build']);
     } else {
       setRepo('zskbot/Autorun');
       setBranch('main');
       setPrNumber('');
-      setCommitSha('workspace-head');
+      setCommitSha('');
       setSelectedSteps(['typecheck', 'lint', 'vite_build']);
     }
   };
@@ -257,7 +257,7 @@ export const JobQueueEngineView: React.FC<JobQueueEngineViewProps> = ({
             {lang === 'vi' ? 'Local Runner Agent' : 'Execution Agent Heartbeat'}
           </p>
           <p className="font-mono text-lg font-semibold text-emerald-700 dark:text-emerald-400 mt-1.5">
-            {statusData?.runner.status === 'busy' ? 'Busy (Running)' : 'Online'}
+            {!statusData?.executionEnabled ? 'Disabled (Safe Default)' : statusData?.runner.status === 'busy' ? 'Busy (Running)' : 'Online'}
           </p>
           <p className="text-xs font-mono text-slate-500 dark:text-slate-400 mt-1 truncate tabular-nums">
             load {statusData?.runner.loadAvg1m ?? 0} · {statusData?.runner.freeMemMb ?? 0} MB free
