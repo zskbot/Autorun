@@ -58,6 +58,53 @@ async function queueApi<T>(action: string, body: Record<string, unknown>): Promi
   return parsed as T;
 }
 
+
+async function queueApiGet<T>(action: string): Promise<T> {
+  const { url, token } = apiConfig();
+  if (!url || !token) throw new Error('Durable Control API URL or runner token is not configured.');
+  const response = await fetch(`${url}/api/v1/autorun/queue/${action}`, {
+    method: 'GET',
+    headers: { authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+  const text = await response.text();
+  let parsed: any = {};
+  try { parsed = text ? JSON.parse(text) : {}; } catch { parsed = { error: text }; }
+  if (!response.ok) throw new Error(`Control API ${action} failed (HTTP ${response.status}).`);
+  return parsed as T;
+}
+
+export async function listDurableJobs() {
+  try {
+    const result = await queueApiGet<{ jobs: any[] }>('jobs?limit=50');
+    return { ok: true as const, jobs: result.jobs || [] };
+  } catch (error) {
+    return { ok: false as const, error: error instanceof Error ? error.message : 'Queue read failed.' };
+  }
+}
+
+export async function listDurableEvents() {
+  try {
+    const result = await queueApiGet<{ events: any[] }>('events?limit=100');
+    return { ok: true as const, events: result.events || [] };
+  } catch (error) {
+    return { ok: false as const, error: error instanceof Error ? error.message : 'Event read failed.' };
+  }
+}
+
+export async function getDurableQueueStatus() {
+  const { url, token } = apiConfig();
+  if (!url || !token) return { configured: false, endpointUrl: url || null, reachable: false, lastError: 'Durable Control API URL or runner token is missing.' };
+  try {
+    const response = await fetch(`${url}/health/live`, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body = await response.json() as { ok?: boolean; storage?: string };
+    return { configured: true, endpointUrl: url, reachable: body.ok === true, lastError: null };
+  } catch (error) {
+    return { configured: true, endpointUrl: url, reachable: false, lastError: error instanceof Error ? error.message : 'Control API unavailable.' };
+  }
+}
+
 function remember(run: JobRecord) {
   const existing = recentRuns.findIndex((item) => item.id === run.id);
   if (existing >= 0) recentRuns.splice(existing, 1);
