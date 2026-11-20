@@ -1,6 +1,5 @@
 import os from 'node:os';
 import { createHash } from 'node:crypto';
-import { createHash } from 'node:crypto';
 import { checkoutJobRepository, isRepositoryAllowed } from './repositoryCheckout.js';
 import { COMMAND_ALLOWLIST } from './security.js';
 import { assertDockerRunnerReady, dockerNetworkFromEnv, executeDockerJob, runnerImageFromEnv } from './dockerRunner.js';
