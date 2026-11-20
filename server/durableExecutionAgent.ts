@@ -1,7 +1,7 @@
 import os from 'node:os';
 import { checkoutJobRepository, isRepositoryAllowed } from './repositoryCheckout.js';
 import { COMMAND_ALLOWLIST } from './security.js';
-import { executeDockerJob } from './dockerRunner.js';
+import { dockerNetworkFromEnv, executeDockerJob, runnerImageFromEnv } from './dockerRunner.js';
 
 type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 interface JobRecord {
@@ -94,6 +94,9 @@ export async function enqueueJobRun(params: {
 }): Promise<{ ok: true; run: JobRecord } | { ok: false; error: string }> {
   if (process.env.AUTORUN_ENABLE_DOCKER_EXECUTION !== 'true') {
     return { ok: false, error: 'Docker execution is disabled by the safe default.' };
+  }
+  try { runnerImageFromEnv(); dockerNetworkFromEnv(); } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Docker runner configuration is invalid.' };
   }
   if (!apiConfig().url || !apiConfig().token) {
     return { ok: false, error: 'Durable staging Control API is not configured.' };
@@ -268,6 +271,10 @@ async function runnerLoop(): Promise<void> {
 
 export function startRunnerWorker(): void {
   if (runnerStarted || process.env.AUTORUN_ENABLE_DOCKER_EXECUTION !== 'true') return;
+  try { runnerImageFromEnv(); dockerNetworkFromEnv(); } catch (error) {
+    console.error('AutoRun Docker runner is not ready:', error instanceof Error ? error.message : 'invalid config');
+    return;
+  }
   runnerStarted = true;
   void runnerLoop();
 }
