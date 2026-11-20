@@ -11,15 +11,15 @@ test('runner refuses mutable image tags and requires an immutable digest', () =>
 
 test('runner network defaults to no network and rejects host/default bridge', () => {
   assert.equal(dockerNetworkFromEnv({}), 'none');
-  assert.equal(dockerNetworkFromEnv({ AUTORUN_DOCKER_NETWORK: 'ocodejs-egress-restricted' }), 'ocodejs-egress-restricted');
-  assert.throws(() => dockerNetworkFromEnv({ AUTORUN_DOCKER_NETWORK: 'host' }), /prohibited/);
-  assert.throws(() => dockerNetworkFromEnv({ AUTORUN_DOCKER_NETWORK: 'bridge' }), /prohibited/);
+  assert.throws(() => dockerNetworkFromEnv({ AUTORUN_DOCKER_NETWORK: 'ocodejs-egress-restricted' }), /Only --network none/);
+  assert.throws(() => dockerNetworkFromEnv({ AUTORUN_DOCKER_NETWORK: 'host' }), /Only --network none/);
+  assert.throws(() => dockerNetworkFromEnv({ AUTORUN_DOCKER_NETWORK: 'bridge' }), /Only --network none/);
 });
 
 test('job container is non-privileged, non-root, resource limited and has no host mounts', () => {
   const args = buildDockerCreateArgs('job-test', digestImage, 'none');
   const joined = args.join(' ');
-  for (const flag of ['--network none', '--cap-drop=ALL', '--security-opt=no-new-privileges', '--read-only', '--user 10001:10001', '--pids-limit=128', '--memory=1g', '--cpus=1', '--tmpfs']) {
+  for (const flag of ['--network none', '--cap-drop=ALL', '--security-opt=no-new-privileges', '--read-only', '--user 10001:10001', '--pids-limit=128', '--memory=1g', '--memory-swap=1g', '--cpus=1', '--tmpfs']) {
     assert.ok(joined.includes(flag), `missing ${flag}`);
   }
   assert.doesNotMatch(joined, /--privileged|--volume| -v |docker\.sock|--network host/);
