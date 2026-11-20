@@ -173,10 +173,32 @@ async function processClaimedJob(job: QueueJob): Promise<void> {
   let checkout: Awaited<ReturnType<typeof checkoutJobRepository>> | null = null;
   let outcome: 'succeeded' | 'failed' | 'timed_out' = 'failed';
   let cancelled = false;
+  let cancelRequested = false;
+  let heartbeatBusy = false;
+  const heartbeatTimer = setInterval(async () => {
+    if (heartbeatBusy || cancelRequested) return;
+    heartbeatBusy = true;
+    try {
+      const heartbeat = await queueApi<{ cancelRequested: boolean }>('heartbeat', {
+        jobId: job.job_id, runnerId: RUNNER_ID, leaseToken: job.leaseToken,
+      });
+      cancelRequested = heartbeat.cancelRequested;
+    } catch {
+      // Lease expiry is the recovery mechanism; never execute after a failed heartbeat.
+      cancelRequested = true;
+    } finally {
+      heartbeatBusy = false;
+    }
+  }, 15_000);
+  heartbeatTimer.unref();
   let errorMessage = '';
   try {
     await queueApi('start', { jobId: job.job_id, runnerId: RUNNER_ID, leaseToken: job.leaseToken });
     checkout = await checkoutJobRepository({ repo: job.repository, branch: job.branch, commitSha: job.commit_sha });
+    if (cancelRequested) {
+      cancelled = true;
+      throw new Error('Job cancellation requested before container start.');
+    }
 
     const specs = job.commandIds.map((id) => {
       const command = COMMAND_ALLOWLIST[id];
@@ -187,12 +209,7 @@ async function processClaimedJob(job: QueueJob): Promise<void> {
     const result = await executeDockerJob({
       sourceDir: checkout.directory,
       steps: specs,
-      onHeartbeat: async () => {
-        const heartbeat = await queueApi<{ cancelRequested: boolean }>('heartbeat', {
-          jobId: job.job_id, runnerId: RUNNER_ID, leaseToken: job.leaseToken,
-        });
-        return heartbeat.cancelRequested;
-      },
+      onHeartbeat: async () => cancelRequested,
       onStep: (step) => {
         const target = run.steps.find((item) => item.stepId === step.stepId);
         if (target) {
@@ -214,6 +231,7 @@ async function processClaimedJob(job: QueueJob): Promise<void> {
     errorMessage = error instanceof Error ? error.message : 'Runner failed.';
     outcome = /timeout/i.test(errorMessage) ? 'timed_out' : 'failed';
   } finally {
+    clearInterval(heartbeatTimer);
     await checkout?.cleanup().catch(() => undefined);
   }
 
