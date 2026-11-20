@@ -157,13 +157,14 @@ function runAllowlistedStep(run: JobRunRecord, step: StepExecutionRecord, worksp
 
     activeChildProcesses.set(run.id, child);
     let timedOut = false;
+    let forceKillTimer: NodeJS.Timeout | undefined;
 
     const timer = setTimeout(() => {
       timedOut = true;
       step.stderr = appendBounded(step.stderr, `\n[TIMEOUT] Exceeded ${spec.timeoutMs}ms limit. Sending SIGTERM...\n`);
       child.kill('SIGTERM');
-      setTimeout(() => {
-        if (!child.killed) child.kill('SIGKILL');
+      forceKillTimer = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
       }, 3000);
     }, spec.timeoutMs);
 
@@ -177,6 +178,7 @@ function runAllowlistedStep(run: JobRunRecord, step: StepExecutionRecord, worksp
 
     child.on('error', (err) => {
       clearTimeout(timer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
       activeChildProcesses.delete(run.id);
       step.durationMs = Date.now() - startMs;
       step.stderr = appendBounded(step.stderr, `\n[SPAWN ERROR] ${err.message}\n`);
