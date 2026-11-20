@@ -1,0 +1,92 @@
+name: AutoRun Docker isolation
+
+on:
+  pull_request:
+    paths:
+      - "server/dockerRunner.ts"
+      - "server/dockerRunner.test.ts"
+      - "server/durableExecutionAgent.ts"
+      - "server/repositoryCheckout.ts"
+      - "server/security.ts"
+      - "server/*.test.ts"
+      - "server.ts"
+      - "package.json"
+      - ".github/workflows/autorun-runner-isolation.yml"
+
+permissions: {}
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript check
+        run: npm run lint
+      - name: Unit tests
+        run: npm test
+      - name: Frontend build
+        run: npm run build
+
+  container-boundaries:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull isolated smoke image
+        run: docker pull alpine:3.20
+      - name: Create non-privileged disposable container
+        run: |
+          docker create --name autorun-boundary-test \
+            --network none \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --read-only \
+            --user 65534:65534 \
+            --pids-limit 64 \
+            --memory 128m \
+            --cpus 0.5 \
+            --tmpfs /tmp:rw,nosuid,nodev,noexec,size=16m \
+            alpine:3.20 sh -c 'sleep 120'
+      - name: Assert Docker host configuration
+        run: |
+          docker inspect autorun-boundary-test > /tmp/inspect.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const inspected = JSON.parse(fs.readFileSync('/tmp/inspect.json', 'utf8'))[0];
+          const config = inspected.HostConfig;
+          assert.equal(config.Privileged, false);
+          assert.equal(config.ReadonlyRootfs, true);
+          assert.equal(config.NetworkMode, 'none');
+          assert.equal(config.PidsLimit, 64);
+          assert.equal(config.Memory, 128 * 1024 * 1024);
+          assert.ok(config.CapDrop?.includes('ALL'));
+          assert.ok(config.SecurityOpt?.includes('no-new-privileges'));
+          assert.deepEqual(config.Binds || [], []);
+          assert.deepEqual(config.Devices || [], []);
+          assert.ok((inspected.Mounts || []).every((mount) => mount.Type === 'tmpfs'));
+          assert.ok(!(inspected.Mounts || []).some((mount) => mount.Destination === '/var/run/docker.sock'));
+          NODE
+      - name: Test container escape boundaries
+        run: |
+          docker start autorun-boundary-test
+          docker exec autorun-boundary-test sh -ec '
+            test "$(id -u)" = "65534"
+            test ! -S /var/run/docker.sock
+            if touch /etc/autorun-escape-test 2>/dev/null; then exit 21; fi
+            if mount -t tmpfs tmpfs /mnt 2>/dev/null; then exit 22; fi
+            if wget -q -T 2 -O /dev/null https://example.com 2>/dev/null; then exit 23; fi
+          '
+      - name: Remove disposable container
+        if: always()
+        run: docker rm -f autorun-boundary-test || true

@@ -1,46 +1,68 @@
 # OCodeJS AutoRun Control Center
 
-AutoRun is a dashboard and a guarded local execution-agent prototype. It is **not yet a production runner service** and does not by itself remove GitHub Actions queue delays.
+AutoRun is a dashboard and a guarded job runner. The durable queue and Docker runner in this branch are a staging prototype; they are not enabled by default and are not production-ready.
 
-## Current execution model
+## Architecture
 
-1. An operator dispatches an allowlisted job through the authenticated API.
-2. The agent validates the repository against `AUTORUN_ALLOWED_REPOSITORIES`.
-3. It fetches the requested branch and exact 40-character commit SHA from GitHub.
-4. It checks out that SHA in a fresh temporary directory.
-5. It executes only server-defined command IDs, without a shell, then removes the temporary checkout.
-6. Run and event state is mirrored to the configured OCodeJS staging Control API.
+- GitHub remains the source of truth for repositories, branches and commits.
+- Cloudflare Worker `ocodejs-autorun-control-staging` is the Control API.
+- Existing D1 database `ocodejs-autorun-staging` stores durable jobs, leases, attempts and append-only job events.
+- AutoRun submits idempotent jobs to the Control API and claims work using a short-lived lease.
+- Each job runs in a disposable Docker container; the host checkout is streamed as a Git archive into a tmpfs workspace. No host directory or Docker socket is mounted into the job container.
 
-The local queue is still in process memory. D1 is currently a remote mirror, not yet the authoritative atomic queue. A process restart can therefore lose in-flight queue state. Do not use this build for critical production jobs.
+## Queue protocol
 
-## Safe defaults
+The Control API queue routes are under `/api/v1/autorun/queue`:
 
-Execution is disabled by default. Keep the following safe settings until a dedicated isolated runner has been provisioned:
+- `POST /jobs`: idempotent job admission; exact repository allowlist, branch, full commit SHA and command IDs are validated.
+- `POST /claim`: atomic D1 claim using one conditional `UPDATE ... RETURNING`; returns a one-time lease token.
+- `POST /heartbeat`: extends the lease and returns cooperative cancellation state.
+- `POST /start`: transitions a leased job to running.
+- `POST /complete`: records success, failure or timeout; bounded retry policy applies.
+- `POST /cancel`: cancels queued/leased work or sets a cancellation request for running work.
+- `GET /jobs`: lists durable job state.
+
+Expired leases are recovered during the next claim. The database trigger records queue status transitions in `autorun_job_events`. GitHub Actions run snapshots in `autorun_runs` and `autorun_events` remain a separate reporting history.
+
+## Docker boundary
+
+The runner fails closed unless `AUTORUN_RUNNER_IMAGE` is pinned to an immutable `@sha256:` digest. The job container uses:
+
+- `--network none` by default; host and default bridge networking are rejected.
+- `--cap-drop=ALL`, `--security-opt=no-new-privileges`, `--read-only`, non-root UID 10001.
+- CPU 1, memory 1 GiB, PID limit 128, bounded tmpfs for `/tmp` and `/workspace`.
+- No privileged mode, host mounts, Docker socket, runner credentials or long-lived secrets inside the container.
+- A hard timeout per allowlisted step and forced container removal in `finally`.
+
+All custom networks are rejected. Only `--network none` is accepted until a separate egress proxy is implemented and independently tested against an explicit DNS/HTTP allowlist. A Docker network label is not proof of firewall enforcement.
+
+The runner host must use rootless Docker; there is no environment override to disable this check. The default no-network container cannot run npm ci or fetch Prisma engines; a separately audited allowlisted egress proxy or prebuilt dependency image is required before network-dependent jobs can run. Do not enable a general bridge network as a workaround. The host's Docker daemon is controlled by the runner process; the daemon socket is never exposed to the job container. Do not run this service on a general-purpose application host.
+
+## Safe configuration
+
+Keep execution disabled until all CI and host acceptance tests pass:
 
 ```dotenv
-AUTORUN_ENABLE_UNSANDBOXED_EXECUTION=false
+AUTORUN_ENABLE_DOCKER_EXECUTION=false
+AUTORUN_CONTROL_API_URL=https://ocodejs-autorun-control-staging.ocodejs-df1.workers.dev
+AUTORUN_RUNNER_TOKEN=
+AUTORUN_RUNNER_IMAGE=
+AUTORUN_DOCKER_NETWORK=none
+AUTORUN_DOCKER_REQUIRE_ROOTLESS=true
 AUTORUN_ALLOWED_REPOSITORIES=OCodejs/mcp.auth.ocodejs
 ```
 
-**Do not enable execution on a general-purpose host.** The current agent does not yet provide Docker/VM isolation. Even though commands are allowlisted and spawned with `shell: false`, package installation and project build/test scripts execute repository-controlled code. Use only a dedicated disposable machine with no production credentials, no privileged network access, and no secrets in its environment. Prefer an ephemeral isolated runner before enabling this feature.
+The Worker requires `AUTORUN_RUNNER_TOKEN_SHA256` as a Cloudflare secret. AutoRun receives the matching plaintext token only through its secret manager. Never commit or log either value. The D1 migration `0002_durable_queue.sql` is not applied by this PR.
 
-The repository allowlist is exact and comma-separated. The default example allows only `OCodejs/mcp.auth.ocodejs`; the actual runtime must be configured separately. Private repository checkout is not implemented in this iteration.
+## Validation gate
 
-## Required configuration
+The PR workflow runs TypeScript, unit tests, frontend build and Docker boundary smoke tests. These are necessary but not sufficient for staging acceptance. Before connecting `OCodejs/mcp.auth.ocodejs`, also verify on a dedicated rootless Docker host:
 
-- `AUTORUN_CONTROL_API_URL`: exact HTTPS URL of the existing staging Control API. Leave empty until the real endpoint is verified; do not use the example placeholder.
-- `AUTORUN_CONTROL_TOKEN`: operator bearer token, configured only in the runtime secret manager.
-- `D1_DATABASE_ID`: existing staging database identifier.
-- `AUTORUN_ALLOWED_REPOSITORIES`: exact GitHub `owner/name` allowlist.
-- `AUTORUN_ENABLE_UNSANDBOXED_EXECUTION`: must remain `false` until a dedicated isolated runner has been provisioned and reviewed.
-- `GITHUB_WEBHOOK_SECRET`: webhook HMAC secret, configured only in the runtime secret manager.
+1. Two independent runners cannot claim the same job.
+2. Restart after claim recovers an expired lease without losing the job.
+3. Timeout, retry budget and cancellation stop the container and persist terminal state.
+4. No host path, Docker socket, host PID/network namespace or elevated capability is visible from the container.
+5. Egress is denied by default; any custom restricted network is tested against an explicit allowlist.
+6. Container cleanup removes writable layers and tmpfs after success, failure, timeout and cancellation.
 
-Never commit real secret values.
-
-## Webhook behavior
-
-The webhook endpoint verifies `X-Hub-Signature-256`. Only `push` and pull-request `opened`, `reopened`, and `synchronize` events are eligible for dispatch. `workflow_job` is intentionally not used as a dispatch trigger, preventing a feedback loop where AutoRun-generated jobs trigger more AutoRun jobs.
-
-## Verification status
-
-The repository change set must pass typecheck/build and a security review before the execution flag is enabled. No staging database migration, production deployment, runner registration, or job execution is performed by this repository patch.
+No D1 migration, Worker deployment, secret configuration, runner registration, staging job, Production deployment, DNS change or PR merge is part of this change.

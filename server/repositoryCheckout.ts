@@ -32,8 +32,8 @@ export async function checkoutJobRepository(input: {
   branch: string;
   commitSha: string;
 }): Promise<CheckedOutWorkspace> {
-  if (process.env.AUTORUN_ENABLE_UNSANDBOXED_EXECUTION !== 'true') {
-    throw new Error('Execution is disabled. Set AUTORUN_ENABLE_UNSANDBOXED_EXECUTION=true only on a dedicated, isolated runner.');
+  if (process.env.AUTORUN_ENABLE_DOCKER_EXECUTION !== 'true') {
+    throw new Error('Docker execution is disabled. Enable it only on a dedicated runner host after all isolation acceptance tests pass.');
   }
 
   const repo = input.repo.trim();
