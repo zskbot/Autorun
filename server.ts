@@ -93,7 +93,9 @@ app.post(
       detail: `Verified ${eventType} for ${repo} (${branch} @ ${commitSha})`,
     });
 
-    if (eventType === 'pull_request' || eventType === 'push' || eventType === 'workflow_job') {
+    const pullRequestAction = typeof payload.action === 'string' ? payload.action : '';
+    const approvedPullRequestAction = ['opened', 'reopened', 'synchronize'].includes(pullRequestAction);
+    if (eventType === 'push' || (eventType === 'pull_request' && approvedPullRequestAction)) {
       const enqueued = await enqueueJobRun({
         repo,
         branch,
@@ -159,6 +161,8 @@ app.get('/api/control/status', async (_req: Request, res: Response) => {
     authConfigured: Boolean(process.env.AUTORUN_CONTROL_TOKEN?.trim()),
     githubWebhookConfigured: Boolean(process.env.GITHUB_WEBHOOK_SECRET?.trim()),
     githubTokenConfigured: Boolean(process.env.GITHUB_TOKEN?.trim()),
+    executionEnabled: process.env.AUTORUN_ENABLE_UNSANDBOXED_EXECUTION === 'true',
+    allowedRepositories: (process.env.AUTORUN_ALLOWED_REPOSITORIES || '').split(',').map((repo) => repo.trim()).filter(Boolean),
     d1,
     runner: getRunnerHeartbeat(),
     allowlist: Object.values(COMMAND_ALLOWLIST).map((c) => ({
