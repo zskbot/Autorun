@@ -17,7 +17,8 @@ import {
   enqueueJobRun,
   getLiveWorkspaceRuns,
   getRunnerHeartbeat,
-} from './server/executionAgent.js';
+  startRunnerWorker,
+} from './server/durableExecutionAgent.js';
 import { isRepositoryAllowed } from './server/repositoryCheckout.js';
 import {
   COMMAND_ALLOWLIST,
@@ -119,7 +120,7 @@ app.post(
         prNumber,
         commitSha,
         requestedBy: `github:${eventType}`,
-        stepIds: ['typecheck', 'lint', 'vite_build'],
+        stepIds: ['npm_ci', 'unit_tests', 'prisma_generate', 'prisma_validate', 'typecheck', 'nextjs_build'],
       });
       if (!enqueued.ok) {
         res.status(400).json({ error: enqueued.error });
@@ -178,7 +179,7 @@ app.get('/api/control/status', async (_req: Request, res: Response) => {
     authConfigured: Boolean(process.env.AUTORUN_CONTROL_TOKEN?.trim()),
     githubWebhookConfigured: Boolean(process.env.GITHUB_WEBHOOK_SECRET?.trim()),
     githubTokenConfigured: Boolean(process.env.GITHUB_TOKEN?.trim()),
-    executionEnabled: process.env.AUTORUN_ENABLE_UNSANDBOXED_EXECUTION === 'true',
+    executionEnabled: process.env.AUTORUN_ENABLE_DOCKER_EXECUTION === 'true' && Boolean(process.env.AUTORUN_RUNNER_IMAGE?.includes('@sha256:')),
     allowedRepositories: (process.env.AUTORUN_ALLOWED_REPOSITORIES || '').split(',').map((repo) => repo.trim()).filter(Boolean),
     d1,
     runner: getRunnerHeartbeat(),
@@ -208,7 +209,7 @@ app.post('/api/runs/dispatch', requireControlAuth, async (req: Request, res: Res
   const steps = Array.isArray(stepIds) ? stepIds.map(String) : [];
 
   const result = await enqueueJobRun({
-    repo: typeof repo === 'string' ? repo : 'zskbot/OCodeJS-Auth',
+    repo: typeof repo === 'string' ? repo : 'OCodejs/mcp.auth.ocodejs',
     branch: typeof branch === 'string' ? branch : 'main',
     prNumber: typeof prNumber === 'number' ? prNumber : null,
     commitSha: typeof commitSha === 'string' ? commitSha : 'HEAD',
@@ -341,6 +342,7 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Kinetix Ops / AutoRun Control Center listening on http://0.0.0.0:${PORT}`);
+    startRunnerWorker();
   });
 }
 
