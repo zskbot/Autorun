@@ -18,6 +18,7 @@ import {
   getLiveWorkspaceRuns,
   getRunnerHeartbeat,
 } from './server/executionAgent.js';
+import { isRepositoryAllowed } from './server/repositoryCheckout.js';
 import {
   COMMAND_ALLOWLIST,
   requireControlAuth,
@@ -77,7 +78,12 @@ app.post(
       | undefined;
     const headCommit = payload.head_commit as { id?: string } | undefined;
 
-    const repo = repoObj?.full_name || 'zskbot/OCodeJS-Auth';
+    const repo = repoObj?.full_name || '';
+    if (!repo) {
+      res.status(400).json({ error: 'Webhook payload is missing repository.full_name.' });
+      return;
+    }
+
     const prNumber = typeof prObj?.number === 'number' ? prObj.number : null;
     const branch =
       prObj?.head?.ref ||
@@ -93,7 +99,20 @@ app.post(
       detail: `Verified ${eventType} for ${repo} (${branch} @ ${commitSha})`,
     });
 
-    if (eventType === 'pull_request' || eventType === 'push' || eventType === 'workflow_job') {
+    const pullRequestAction = typeof payload.action === 'string' ? payload.action : '';
+    const approvedPullRequestAction = ['opened', 'reopened', 'synchronize'].includes(pullRequestAction);
+    if (eventType === 'push' || (eventType === 'pull_request' && approvedPullRequestAction)) {
+      if (process.env.AUTORUN_ENABLE_UNSANDBOXED_EXECUTION !== 'true' || !isRepositoryAllowed(repo)) {
+        res.status(202).json({
+          accepted: true,
+          eventType,
+          ignored: true,
+          reason: process.env.AUTORUN_ENABLE_UNSANDBOXED_EXECUTION !== 'true'
+            ? 'Execution is disabled by the safe default.'
+            : 'Repository is not allowlisted.',
+        });
+        return;
+      }
       const enqueued = await enqueueJobRun({
         repo,
         branch,
@@ -159,6 +178,8 @@ app.get('/api/control/status', async (_req: Request, res: Response) => {
     authConfigured: Boolean(process.env.AUTORUN_CONTROL_TOKEN?.trim()),
     githubWebhookConfigured: Boolean(process.env.GITHUB_WEBHOOK_SECRET?.trim()),
     githubTokenConfigured: Boolean(process.env.GITHUB_TOKEN?.trim()),
+    executionEnabled: process.env.AUTORUN_ENABLE_UNSANDBOXED_EXECUTION === 'true',
+    allowedRepositories: (process.env.AUTORUN_ALLOWED_REPOSITORIES || '').split(',').map((repo) => repo.trim()).filter(Boolean),
     d1,
     runner: getRunnerHeartbeat(),
     allowlist: Object.values(COMMAND_ALLOWLIST).map((c) => ({

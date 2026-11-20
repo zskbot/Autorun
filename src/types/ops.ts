@@ -271,6 +271,8 @@ export interface ControlPlaneStatus {
   authConfigured: boolean;
   githubWebhookConfigured: boolean;
   githubTokenConfigured: boolean;
+  executionEnabled: boolean;
+  allowedRepositories: string[];
   d1: {
     configured: boolean;
     endpointUrl: string | null;
