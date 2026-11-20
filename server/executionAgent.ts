@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { persistEventToD1, persistRunToD1 } from './d1Bridge.js';
 import { COMMAND_ALLOWLIST } from './security.js';
+import { checkoutJobRepository } from './repositoryCheckout.js';
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
@@ -130,7 +131,7 @@ function appendBounded(current: string, chunk: string): string {
   return combined.slice(combined.length - MAX_OUTPUT_CHARS);
 }
 
-function runAllowlistedStep(run: JobRunRecord, step: StepExecutionRecord): Promise<number> {
+function runAllowlistedStep(run: JobRunRecord, step: StepExecutionRecord, workspaceDir?: string): Promise<number> {
   return new Promise((resolve) => {
     const spec = COMMAND_ALLOWLIST[step.stepId];
     if (!spec) {
@@ -142,12 +143,15 @@ function runAllowlistedStep(run: JobRunRecord, step: StepExecutionRecord): Promi
 
     const startMs = Date.now();
     const child = spawn(spec.bin, spec.args, {
-      cwd: getWorkspaceDir(),
+      cwd: workspaceDir || getWorkspaceDir(),
       shell: false,
       env: {
-        ...process.env,
+        PATH: process.env.PATH || '',
+        HOME: process.env.HOME || os.tmpdir(),
+        TMPDIR: process.env.TMPDIR || os.tmpdir(),
         CI: 'true',
         FORCE_COLOR: '0',
+        NODE_ENV: 'test',
       },
     });
 
@@ -209,8 +213,24 @@ async function processQueue() {
       await syncRunAndEvent(nextJob, 'CLAIMED', RUNNER_ID, `Execution agent claimed job ${nextJob.id}`);
 
       let failed = false;
+      let checkedOut: Awaited<ReturnType<typeof checkoutJobRepository>> | null = null;
 
-      for (const step of nextJob.steps) {
+      try {
+        checkedOut = await checkoutJobRepository({
+          repo: nextJob.repo,
+          branch: nextJob.branch,
+          commitSha: nextJob.commitSha,
+        });
+        await syncRunAndEvent(nextJob, 'CHECKOUT_DONE', RUNNER_ID, `Checked out ${nextJob.repo}@${nextJob.commitSha}`);
+      } catch (error) {
+        failed = true;
+        nextJob.steps[0].status = 'failed';
+        nextJob.steps[0].exitCode = 1;
+        nextJob.steps[0].stderr = error instanceof Error ? error.message : 'Repository checkout failed.';
+        await syncRunAndEvent(nextJob, 'CHECKOUT_FAILED', RUNNER_ID, nextJob.steps[0].stderr);
+      }
+
+      for (const step of failed ? [] : nextJob.steps) {
         if (isRunCancelled(nextJob)) {
           step.status = 'cancelled';
           continue;
@@ -219,7 +239,7 @@ async function processQueue() {
         step.status = 'running';
         await syncRunAndEvent(nextJob, 'STEP_START', RUNNER_ID, `Starting allowlisted step ${step.stepId}`);
 
-        const exitCode = await runAllowlistedStep(nextJob, step);
+        const exitCode = await runAllowlistedStep(nextJob, step, checkedOut?.directory);
 
         if (isRunCancelled(nextJob)) {
           step.status = 'cancelled';
@@ -277,6 +297,12 @@ async function processQueue() {
         content: reportBody,
       });
 
+      if (checkedOut) {
+        await checkedOut.cleanup().catch((error) => {
+          console.error('Failed to clean job workspace:', error);
+        });
+      }
+
       await syncRunAndEvent(
         nextJob,
         `RUN_${nextJob.status.toUpperCase()}`,
@@ -299,6 +325,16 @@ export async function enqueueJobRun(params: {
   requestedBy: string;
   stepIds: string[];
 }): Promise<{ ok: true; run: JobRunRecord } | { ok: false; error: string }> {
+  if (process.env.AUTORUN_ENABLE_UNSANDBOXED_EXECUTION !== 'true') {
+    return { ok: false, error: 'Execution is disabled until an isolated runner is provisioned and explicitly enabled.' };
+  }
+
+  if (!/^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$/.test(params.repo.trim())) {
+    return { ok: false, error: 'Repository must use the owner/name GitHub format.' };
+  }
+  if (!/^[a-f0-9]{40}$/i.test(params.commitSha.trim())) {
+    return { ok: false, error: 'A full 40-character commit SHA is required.' };
+  }
   if (!params.stepIds.length) {
     return { ok: false, error: 'At least one allowlisted CI step is required.' };
   }
