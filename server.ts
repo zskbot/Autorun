@@ -100,7 +100,7 @@ app.post(
           accepted: true,
           eventType,
           ignored: true,
-          reason: process.env.AUTORUN_ENABLE_UNSANDBOXED_EXECUTION !== 'true'
+          reason: process.env.AUTORUN_ENABLE_DOCKER_EXECUTION !== 'true'
             ? 'Docker execution is disabled by the safe default.'
             : 'Repository is not allowlisted.',
         });
