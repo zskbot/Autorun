@@ -81,7 +81,7 @@ export function buildDockerCreateArgs(containerName: string, image: string, netw
     '--tmpfs', '/tmp:rw,nosuid,nodev,noexec,size=256m',
     '--tmpfs', '/workspace:rw,mode=1777,nosuid,nodev,size=2g',
     '--workdir', '/workspace',
-    '--env', 'CI=true', '--env', 'NODE_ENV=test',
+    '--env', 'CI=true', '--env', 'NODE_ENV=test', '--env', 'HOME=/tmp/home', '--env', 'npm_config_cache=/tmp/npm-cache', '--env', 'DATABASE_URL=postgresql://127.0.0.1:5432/autorun',
     image, 'sh', '-lc', 'sleep 900',
   ];
 }
