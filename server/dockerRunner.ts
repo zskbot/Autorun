@@ -110,7 +110,8 @@ async function verifyRestrictedNetwork(network: string): Promise<void> {
 
 export async function assertDockerRunnerReady(): Promise<void> {
   const network = dockerNetworkFromEnv();
-  await assertDockerRunnerReady();
+  await verifyDockerHost(process.env.AUTORUN_DOCKER_REQUIRE_ROOTLESS !== 'false');
+  await verifyRestrictedNetwork(network);
 }
 
 async function archiveGitCheckout(sourceDir: string, containerName: string): Promise<void> {
