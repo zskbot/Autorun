@@ -15,7 +15,7 @@ The local queue is still in process memory. D1 is currently a remote mirror, not
 
 ## Safe defaults
 
-Execution is disabled unless an operator explicitly sets:
+Execution is disabled by default. Keep the following safe settings until a dedicated isolated runner has been provisioned:
 
 ```dotenv
 AUTORUN_ENABLE_UNSANDBOXED_EXECUTION=false
