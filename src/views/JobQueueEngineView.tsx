@@ -47,7 +47,7 @@ export const JobQueueEngineView: React.FC<JobQueueEngineViewProps> = ({
   const [eventsError, setEventsError] = useState<string | null>(null);
 
   const [repo, setRepo] = useState('OCodejs/mcp.auth.ocodejs');
-  const [branch, setBranch] = useState('main');
+  const [branch, setBranch] = useState('feat/auth-phase2-mainline-20261121');
   const [prNumber, setPrNumber] = useState('17');
   const [commitSha, setCommitSha] = useState('');
   const [selectedSteps, setSelectedSteps] = useState<string[]>(['typecheck', 'lint']);
@@ -110,7 +110,7 @@ export const JobQueueEngineView: React.FC<JobQueueEngineViewProps> = ({
   const applyPreset = (preset: 'ocodejs-pr17' | 'local-check') => {
     if (preset === 'ocodejs-pr17') {
       setRepo('OCodejs/mcp.auth.ocodejs');
-      setBranch('main');
+      setBranch('feat/auth-phase2-mainline-20261121');
       setPrNumber('17');
       setCommitSha('');
       setSelectedSteps(['npm_ci', 'unit_tests', 'prisma_validate', 'typecheck', 'nextjs_build']);
@@ -256,7 +256,7 @@ export const JobQueueEngineView: React.FC<JobQueueEngineViewProps> = ({
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
             {lang === 'vi' ? 'Local Runner Agent' : 'Execution Agent Heartbeat'}
           </p>
-          <p className="font-mono text-lg font-semibold text-emerald-700 dark:text-emerald-400 mt-1.5">
+          <p className={`font-mono text-lg font-semibold mt-1.5 ${!statusData?.executionEnabled ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
             {!statusData?.executionEnabled ? 'Disabled (Safe Default)' : statusData?.runner.status === 'busy' ? 'Busy (Running)' : 'Online'}
           </p>
           <p className="text-xs font-mono text-slate-500 dark:text-slate-400 mt-1 truncate tabular-nums">
