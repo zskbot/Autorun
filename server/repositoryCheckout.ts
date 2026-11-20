@@ -14,6 +14,10 @@ export interface CheckedOutWorkspace {
   cleanup: () => Promise<void>;
 }
 
+export function isRepositoryAllowed(repo: string): boolean {
+  return allowedRepositories().has(repo.trim().toLowerCase());
+}
+
 function allowedRepositories(): Set<string> {
   return new Set(
     (process.env.AUTORUN_ALLOWED_REPOSITORIES || '')
