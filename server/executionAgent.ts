@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import { persistEventToD1, persistRunToD1 } from './d1Bridge.js';
 import { COMMAND_ALLOWLIST } from './security.js';
-import { checkoutJobRepository } from './repositoryCheckout.js';
+import { checkoutJobRepository, isRepositoryAllowed } from './repositoryCheckout.js';
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
@@ -329,6 +329,9 @@ export async function enqueueJobRun(params: {
     return { ok: false, error: 'Execution is disabled until an isolated runner is provisioned and explicitly enabled.' };
   }
 
+  if (!isRepositoryAllowed(params.repo)) {
+    return { ok: false, error: `Repository ${params.repo} is not in AUTORUN_ALLOWED_REPOSITORIES.` };
+  }
   if (!/^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$/.test(params.repo.trim())) {
     return { ok: false, error: 'Repository must use the owner/name GitHub format.' };
   }
