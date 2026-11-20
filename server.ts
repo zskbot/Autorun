@@ -77,7 +77,12 @@ app.post(
       | undefined;
     const headCommit = payload.head_commit as { id?: string } | undefined;
 
-    const repo = repoObj?.full_name || 'zskbot/OCodeJS-Auth';
+    const repo = repoObj?.full_name || '';
+    if (!repo) {
+      res.status(400).json({ error: 'Webhook payload is missing repository.full_name.' });
+      return;
+    }
+
     const prNumber = typeof prObj?.number === 'number' ? prObj.number : null;
     const branch =
       prObj?.head?.ref ||
