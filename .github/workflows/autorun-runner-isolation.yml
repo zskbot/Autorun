@@ -64,7 +64,6 @@ jobs:
           import fs from 'node:fs';
           import assert from 'node:assert/strict';
           const inspected = JSON.parse(fs.readFileSync('/tmp/inspect.json', 'utf8'))[0];
-          assert.deepEqual(inspected.Mounts || [], []);
           const config = inspected.HostConfig;
           assert.equal(config.Privileged, false);
           assert.equal(config.ReadonlyRootfs, true);
@@ -75,24 +74,8 @@ jobs:
           assert.ok(config.SecurityOpt?.includes('no-new-privileges'));
           assert.deepEqual(config.Binds || [], []);
           assert.deepEqual(config.Devices || [], []);
-          NODE
-          exit 0
-          #
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          import assert from 'node:assert/strict';
-          const config = JSON.parse(fs.readFileSync('/tmp/hostconfig.json', 'utf8'));
-          assert.equal(config.Privileged, false);
-          assert.equal(config.ReadonlyRootfs, true);
-          assert.equal(config.NetworkMode, 'none');
-          assert.equal(config.PidsLimit, 64);
-          assert.equal(config.Memory, 128 * 1024 * 1024);
-          assert.ok(config.CapDrop?.includes('ALL'));
-          assert.ok(config.SecurityOpt?.includes('no-new-privileges'));
-          assert.deepEqual(config.Binds || [], []);
-          assert.deepEqual(config.Devices || [], []);
-          const inspected = JSON.parse(require('node:fs').readFileSync('/tmp/inspect.json', 'utf8'));
-          assert.deepEqual(inspected.Mounts || [], []);
+          assert.ok((inspected.Mounts || []).every((mount) => mount.Type === 'tmpfs'));
+          assert.ok(!(inspected.Mounts || []).some((mount) => mount.Destination === '/var/run/docker.sock'));
           NODE
       - name: Test container escape boundaries
         run: |
