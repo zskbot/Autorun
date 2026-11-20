@@ -34,9 +34,9 @@ The runner fails closed unless `AUTORUN_RUNNER_IMAGE` is pinned to an immutable 
 - No privileged mode, host mounts, Docker socket, runner credentials or long-lived secrets inside the container.
 - A hard timeout per allowlisted step and forced container removal in `finally`.
 
-A custom egress network is accepted only when it has the operator label `ocodejs.autorun.egress=restricted`. That label is an attestation, not proof of firewall enforcement. A dedicated runner host must enforce and independently test outbound DNS/HTTP allowlists before any networked job is enabled. Do not use the default bridge or host network.
+All custom networks are rejected. Only `--network none` is accepted until a separate egress proxy is implemented and independently tested against an explicit DNS/HTTP allowlist. A Docker network label is not proof of firewall enforcement.
 
-The runner host must use rootless Docker by default. The default no-network container cannot run npm ci or fetch Prisma engines; a separately audited allowlisted egress proxy or prebuilt dependency image is required before network-dependent jobs can run. Do not enable a general bridge network as a workaround. The host's Docker daemon is controlled by the runner process; the daemon socket is never exposed to the job container. Do not run this service on a general-purpose application host.
+The runner host must use rootless Docker; there is no environment override to disable this check. The default no-network container cannot run npm ci or fetch Prisma engines; a separately audited allowlisted egress proxy or prebuilt dependency image is required before network-dependent jobs can run. Do not enable a general bridge network as a workaround. The host's Docker daemon is controlled by the runner process; the daemon socket is never exposed to the job container. Do not run this service on a general-purpose application host.
 
 ## Safe configuration
 
