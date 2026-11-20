@@ -108,6 +108,11 @@ async function verifyRestrictedNetwork(network: string): Promise<void> {
   }
 }
 
+export async function assertDockerRunnerReady(): Promise<void> {
+  const network = dockerNetworkFromEnv();
+  await assertDockerRunnerReady();
+}
+
 async function archiveGitCheckout(sourceDir: string, containerName: string): Promise<void> {
   const archive = spawn('git', ['-C', sourceDir, 'archive', '--format=tar', 'HEAD'], {
     shell: false, stdio: ['ignore', 'pipe', 'pipe'],
