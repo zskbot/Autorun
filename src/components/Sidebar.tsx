@@ -7,6 +7,7 @@ import {
   GitBranch,
   HardDriveDownload,
   LayoutDashboard,
+  ListChecks,
   Network,
   ShieldCheck,
   SlidersHorizontal,
@@ -43,6 +44,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const items: Array<{ id: NavSection; label: string; icon: React.ReactNode }> = [
     { id: 'overview', label: t.nav.overview, icon: <LayoutDashboard className="w-4 h-4 shrink-0" /> },
     { id: 'pipeline', label: t.nav.pipeline, icon: <GitBranch className="w-4 h-4 shrink-0" /> },
+    { id: 'job-engine', label: t.nav.jobEngine, icon: <ListChecks className="w-4 h-4 shrink-0" /> },
     { id: 'observability', label: t.nav.observability, icon: <Activity className="w-4 h-4 shrink-0" /> },
     { id: 'automation', label: t.nav.automation, icon: <HardDriveDownload className="w-4 h-4 shrink-0" /> },
     { id: 'auto-running', label: t.nav.autoRunning, icon: <Timer className="w-4 h-4 shrink-0" /> },

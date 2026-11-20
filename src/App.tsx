@@ -39,6 +39,7 @@ import { AiAgentView } from './views/AiAgentView';
 import { ArchitecturePluginsView } from './views/ArchitecturePluginsView';
 import { AutoRunningMonitorView } from './views/AutoRunningMonitorView';
 import { AutomationBackupView } from './views/AutomationBackupView';
+import { JobQueueEngineView } from './views/JobQueueEngineView';
 import { ObservabilityView } from './views/ObservabilityView';
 import { OverviewView } from './views/OverviewView';
 import { PipelineRunnerView } from './views/PipelineRunnerView';
@@ -46,6 +47,7 @@ import { RunbookView } from './views/RunbookView';
 import { SecurityVaultView } from './views/SecurityVaultView';
 
 const PREFS_STORAGE_KEY = 'kinetix_ops_prefs_v1';
+const CONTROL_TOKEN_SESSION_KEY = 'kinetix_control_token';
 
 function buildInitialMetrics(): MetricPoint[] {
   const now = Date.now();
@@ -106,6 +108,26 @@ export default function App() {
   const [secrets, setSecrets] = useState<EnvSecret[]>(INITIAL_SECRETS);
   const [plugins, setPlugins] = useState<OpsPlugin[]>(INITIAL_PLUGINS);
   const [mfaVerified, setMfaVerified] = useState(false);
+  const [controlToken, setControlToken] = useState<string>(() => {
+    try {
+      return sessionStorage.getItem(CONTROL_TOKEN_SESSION_KEY) || '';
+    } catch {
+      return '';
+    }
+  });
+
+  const handleChangeControlToken = useCallback((nextToken: string) => {
+    setControlToken(nextToken);
+    try {
+      if (nextToken) {
+        sessionStorage.setItem(CONTROL_TOKEN_SESSION_KEY, nextToken);
+      } else {
+        sessionStorage.removeItem(CONTROL_TOKEN_SESSION_KEY);
+      }
+    } catch {
+      // Ignore sessionStorage errors
+    }
+  }, []);
 
   const {
     isOnline,
@@ -366,11 +388,18 @@ export default function App() {
     recordOperation('AlertRuleToggled', id);
   };
 
-  const handleDispatchAlert = async (channel: 'email' | 'sms', recipient: string) => {
+  const handleDispatchAlert = async (
+    channel: 'email' | 'sms',
+    recipient: string,
+  ): Promise<{ ok: boolean; error?: string }> => {
     try {
-      await fetch('/api/alerts/dispatch', {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (controlToken.trim()) {
+        headers.Authorization = `Bearer ${controlToken.trim()}`;
+      }
+      const res = await fetch('/api/alerts/dispatch', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           channel,
           recipient,
@@ -378,16 +407,36 @@ export default function App() {
           message: `Test alert from ${runnerConfig.runnerName}`,
         }),
       });
-    } catch {
-      // Queue offline if disconnected
+      const payload = (await res.json().catch(() => ({}))) as { error?: string; d1?: { error?: string } };
+      if (!res.ok) {
+        const errMsg = payload.error || `HTTP ${res.status}`;
+        appendLog('alertmanager', 'ERROR', `Alert dispatch rejected (${res.status}): ${errMsg}`);
+        pushToast(
+          prefs.language === 'vi' ? 'Gửi cảnh báo thất bại' : 'Alert Dispatch Rejected',
+          errMsg,
+          'critical',
+        );
+        return { ok: false, error: errMsg };
+      }
+
+      appendLog('alertmanager', 'WARN', `Dispatched ${channel.toUpperCase()} notification to ${recipient}`);
+      pushToast(
+        prefs.language === 'vi' ? `Cảnh báo ${channel.toUpperCase()} đã gửi` : `${channel.toUpperCase()} Alert Sent`,
+        recipient,
+        'warning',
+      );
+      recordOperation('AlertDispatched', `${channel} -> ${recipient}`);
+      return { ok: true };
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : 'Network error dispatching alert';
+      appendLog('alertmanager', 'ERROR', `Alert dispatch failed: ${errMsg}`);
+      pushToast(
+        prefs.language === 'vi' ? 'Lỗi kết nối gửi cảnh báo' : 'Alert Dispatch Error',
+        errMsg,
+        'critical',
+      );
+      return { ok: false, error: errMsg };
     }
-    appendLog('alertmanager', 'WARN', `Dispatched ${channel.toUpperCase()} notification to ${recipient}`);
-    pushToast(
-      prefs.language === 'vi' ? `Cảnh báo ${channel.toUpperCase()} đã gửi` : `${channel.toUpperCase()} Alert Sent`,
-      recipient,
-      'warning',
-    );
-    recordOperation('AlertDispatched', `${channel} -> ${recipient}`);
   };
 
   const handleEnablePush = async () => {
@@ -577,16 +626,37 @@ export default function App() {
       `${target.unitName} exited 1 -> Auto-Healing`,
       'warning',
     );
+    const alertHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (controlToken.trim()) {
+      alertHeaders.Authorization = `Bearer ${controlToken.trim()}`;
+    }
     fetch('/api/alerts/dispatch', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: alertHeaders,
       body: JSON.stringify({
         channel: 'email+sms',
         recipient: 'ops-oncall@kinetix-ops.internal',
         severity: 'critical',
         message: `Auto Running daemon ${target.unitName} failed (exit 1); watchdog restarting.`,
       }),
-    }).catch(() => {});
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          appendLog(
+            'alertmanager',
+            'ERROR',
+            `Watchdog alert dispatch rejected (${res.status}): ${data.error || 'Unauthorized or unconfigured'}`,
+          );
+        }
+      })
+      .catch((err: unknown) => {
+        appendLog(
+          'alertmanager',
+          'ERROR',
+          `Watchdog alert dispatch error: ${err instanceof Error ? err.message : 'network error'}`,
+        );
+      });
 
     setTimeout(() => {
       setAutoRunningDaemons((prev) =>
@@ -822,6 +892,16 @@ export default function App() {
               pipelines={pipelines}
               pipelineRunning={pipelineRunning}
               onTriggerPipeline={handleTriggerPipeline}
+            />
+          )}
+
+          {activeSection === 'job-engine' && (
+            <JobQueueEngineView
+              lang={prefs.language}
+              accent={prefs.accent}
+              density={prefs.density}
+              controlToken={controlToken}
+              onChangeControlToken={handleChangeControlToken}
             />
           )}
 

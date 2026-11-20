@@ -24,7 +24,7 @@ interface ObservabilityViewProps {
   logs: SystemLogEntry[];
   alerts: AlertRule[];
   onToggleAlert: (id: string) => void;
-  onDispatchAlert: (channel: 'email' | 'sms', recipient: string) => Promise<void>;
+  onDispatchAlert: (channel: 'email' | 'sms', recipient: string) => Promise<{ ok: boolean; error?: string }>;
   onEnablePush: () => Promise<void>;
   pipelines: PipelineRun[];
   backups: BackupSnapshot[];
@@ -50,7 +50,7 @@ export const ObservabilityView: React.FC<ObservabilityViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [alertRecipient, setAlertRecipient] = useState('ops-oncall@kinetix-ops.internal');
   const [smsRecipient, setSmsRecipient] = useState('+84901234567');
-  const [dispatchFeedback, setDispatchFeedback] = useState<string | null>(null);
+  const [dispatchFeedback, setDispatchFeedback] = useState<{ ok: boolean; text: string } | null>(null);
   const [showPromConfig, setShowPromConfig] = useState(false);
 
   const filteredLogs = useMemo(() => {
@@ -73,13 +73,25 @@ export const ObservabilityView: React.FC<ObservabilityViewProps> = ({
 
   const handleAlertTest = async (channel: 'email' | 'sms') => {
     const target = channel === 'email' ? alertRecipient : smsRecipient;
-    await onDispatchAlert(channel, target);
-    setDispatchFeedback(
-      lang === 'vi'
-        ? `Đã gửi cảnh báo ${channel.toUpperCase()} tới ${target}`
-        : `Dispatched ${channel.toUpperCase()} test alert to ${target}`,
-    );
-    setTimeout(() => setDispatchFeedback(null), 4000);
+    const result = await onDispatchAlert(channel, target);
+    if (result.ok) {
+      setDispatchFeedback({
+        ok: true,
+        text:
+          lang === 'vi'
+            ? `Đã gửi cảnh báo ${channel.toUpperCase()} tới ${target}`
+            : `Dispatched ${channel.toUpperCase()} test alert to ${target}`,
+      });
+    } else {
+      setDispatchFeedback({
+        ok: false,
+        text:
+          lang === 'vi'
+            ? `Từ chối gửi cảnh báo: ${result.error || 'Lỗi xác thực hoặc kết nối D1'}`
+            : `Alert dispatch rejected: ${result.error || 'Authentication or D1 bridge error'}`,
+      });
+    }
+    setTimeout(() => setDispatchFeedback(null), 5000);
   };
 
   return (
@@ -346,7 +358,15 @@ export const ObservabilityView: React.FC<ObservabilityViewProps> = ({
             </div>
 
             {dispatchFeedback && (
-              <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">{dispatchFeedback}</p>
+              <p
+                className={`text-xs font-medium ${
+                  dispatchFeedback.ok
+                    ? 'text-emerald-700 dark:text-emerald-400'
+                    : 'text-red-700 dark:text-red-400'
+                }`}
+              >
+                {dispatchFeedback.text}
+              </p>
             )}
           </div>
         </section>

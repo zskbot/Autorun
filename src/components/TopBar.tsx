@@ -35,6 +35,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   const sectionLabels: Record<NavSection, string> = {
     overview: t.nav.overview,
     pipeline: t.nav.pipeline,
+    'job-engine': t.nav.jobEngine,
     observability: t.nav.observability,
     automation: t.nav.automation,
     'auto-running': t.nav.autoRunning,

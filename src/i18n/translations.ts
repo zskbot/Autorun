@@ -5,6 +5,7 @@ export interface Translations {
   nav: {
     overview: string;
     pipeline: string;
+    jobEngine: string;
     observability: string;
     automation: string;
     autoRunning: string;
@@ -152,6 +153,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     nav: {
       overview: 'Tổng quan & Hiệu suất',
       pipeline: 'CI/CD & AWS Runner',
+      jobEngine: 'Hàng đợi & Runner Agent',
       observability: 'Giám sát & Báo cáo',
       automation: 'Autorun Free & Sao lưu',
       autoRunning: 'Giám sát Auto Running',
@@ -307,6 +309,7 @@ export const TRANSLATIONS: Record<Language, Translations> = {
     nav: {
       overview: 'Overview & Analytics',
       pipeline: 'CI/CD & AWS Runner',
+      jobEngine: 'Job Queue & Runner',
       observability: 'Monitoring & Reports',
       automation: 'Autorun Free & Backups',
       autoRunning: 'Auto Running Monitor',

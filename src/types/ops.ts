@@ -6,6 +6,7 @@ export type DensityMode = 'compact' | 'comfortable';
 export type NavSection =
   | 'overview'
   | 'pipeline'
+  | 'job-engine'
   | 'observability'
   | 'automation'
   | 'auto-running'
@@ -219,5 +220,85 @@ export interface AutoRunningExecutionLog {
   exitCode: number;
   durationMs: number;
   output: string;
+}
+
+export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export interface JobStepRecord {
+  stepId: string;
+  label: string;
+  status: JobStatus;
+  exitCode: number | null;
+  durationMs: number;
+  stdout: string;
+  stderr: string;
+}
+
+export interface JobArtifactRecord {
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+  content: string;
+}
+
+export interface JobRunRecord {
+  id: string;
+  repo: string;
+  branch: string;
+  prNumber: number | null;
+  commitSha: string;
+  status: JobStatus;
+  requestedBy: string;
+  runnerId: string;
+  startedAt: string;
+  finishedAt: string | null;
+  steps: JobStepRecord[];
+  artifacts: JobArtifactRecord[];
+  d1SyncStatus: 'synced' | 'unconfigured' | 'error';
+  d1SyncError?: string;
+}
+
+export interface AllowlistRule {
+  id: string;
+  label: string;
+  command: string;
+  timeoutMs: number;
+  description: string;
+}
+
+export interface ControlPlaneStatus {
+  authConfigured: boolean;
+  githubWebhookConfigured: boolean;
+  githubTokenConfigured: boolean;
+  d1: {
+    configured: boolean;
+    endpointUrl: string | null;
+    databaseId: string;
+    reachable: boolean;
+    lastError: string | null;
+  };
+  runner: {
+    runnerId: string;
+    hostname: string;
+    workspaceDir: string;
+    status: 'online' | 'busy';
+    activeRunId: string | null;
+    lastHeartbeatAt: string;
+    platform: string;
+    nodeVersion: string;
+    loadAvg1m: number;
+    freeMemMb: number;
+  };
+  allowlist: AllowlistRule[];
+}
+
+export interface AutorunEventRecord {
+  id: string;
+  runId: string;
+  type: string;
+  timestamp: string;
+  actor: string;
+  detail: string;
 }
 
