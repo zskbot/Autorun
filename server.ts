@@ -6,11 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import {
-  fetchEventsFromD1,
-  fetchRunsFromD1,
-  getD1BridgeStatus,
   persistAlertToD1,
-  persistEventToD1,
 } from './server/d1Bridge.js';
 import {
   cancelJobRun,
@@ -18,6 +14,9 @@ import {
   getLiveWorkspaceRuns,
   getRunnerHeartbeat,
   startRunnerWorker,
+  listDurableJobs,
+  listDurableEvents,
+  getDurableQueueStatus,
 } from './server/durableExecutionAgent.js';
 import { isRepositoryAllowed } from './server/repositoryCheckout.js';
 import {
@@ -91,25 +90,18 @@ app.post(
       (typeof payload.ref === 'string' ? payload.ref.replace('refs/heads/', '') : 'main');
     const commitSha = prObj?.head?.sha || headCommit?.id || String(payload.after || 'HEAD').slice(0, 12);
 
-    await persistEventToD1({
-      id: `evt-${Date.now()}`,
-      runId: prNumber ? `pr-${prNumber}` : 'webhook',
-      type: 'WEBHOOK_RECEIVED',
-      timestamp: new Date().toISOString(),
-      actor: 'github-webhook',
-      detail: `Verified ${eventType} for ${repo} (${branch} @ ${commitSha})`,
-    });
+    
 
     const pullRequestAction = typeof payload.action === 'string' ? payload.action : '';
     const approvedPullRequestAction = ['opened', 'reopened', 'synchronize'].includes(pullRequestAction);
     if (eventType === 'push' || (eventType === 'pull_request' && approvedPullRequestAction)) {
-      if (process.env.AUTORUN_ENABLE_UNSANDBOXED_EXECUTION !== 'true' || !isRepositoryAllowed(repo)) {
+      if (process.env.AUTORUN_ENABLE_DOCKER_EXECUTION !== 'true' || !isRepositoryAllowed(repo)) {
         res.status(202).json({
           accepted: true,
           eventType,
           ignored: true,
           reason: process.env.AUTORUN_ENABLE_UNSANDBOXED_EXECUTION !== 'true'
-            ? 'Execution is disabled by the safe default.'
+            ? 'Docker execution is disabled by the safe default.'
             : 'Repository is not allowlisted.',
         });
         return;
@@ -174,7 +166,7 @@ app.get('/api/metrics/live', (_req: Request, res: Response) => {
 });
 
 app.get('/api/control/status', async (_req: Request, res: Response) => {
-  const d1 = await getD1BridgeStatus();
+  const d1 = await getDurableQueueStatus();
   res.json({
     authConfigured: Boolean(process.env.AUTORUN_CONTROL_TOKEN?.trim()),
     githubWebhookConfigured: Boolean(process.env.GITHUB_WEBHOOK_SECRET?.trim()),
@@ -195,12 +187,15 @@ app.get('/api/control/status', async (_req: Request, res: Response) => {
 
 app.get('/api/runs', async (_req: Request, res: Response) => {
   const localRuns = getLiveWorkspaceRuns();
-  const d1Result = await fetchRunsFromD1();
+  const durable = await listDurableJobs();
   res.json({
-    runs: localRuns,
-    d1: d1Result.ok
-      ? { synced: true, remoteRunsCount: d1Result.data.runs?.length ?? 0, remoteRuns: d1Result.data.runs ?? [] }
-      : { synced: false, error: d1Result.error },
+    runs: durable.ok ? durable.jobs.map((job) => ({
+      id: job.job_id, repo: job.repository, branch: job.branch, commitSha: job.commit_sha,
+      status: job.status, runnerId: job.lease_owner || '', startedAt: job.created_at,
+      finishedAt: job.finished_at, attempt: job.attempt, maxAttempts: job.max_attempts,
+      leaseExpiresAt: job.lease_expires_at, error: job.error,
+    })) : localRuns,
+    d1: durable.ok ? { synced: true, remoteRunsCount: durable.jobs.length, remoteRuns: durable.jobs } : { synced: false, error: durable.error },
   });
 });
 
@@ -236,12 +231,12 @@ app.post('/api/runs/:id/cancel', requireControlAuth, async (req: Request, res: R
 });
 
 app.get('/api/events', async (_req: Request, res: Response) => {
-  const result = await fetchEventsFromD1();
+  const result = await listDurableEvents();
   if (!result.ok) {
-    res.status(result.status).json({ error: result.error, events: [] });
+    res.status(503).json({ error: result.error, events: [] });
     return;
   }
-  res.json({ events: result.data.events ?? [] });
+  res.json({ events: result.events });
 });
 
 app.post('/api/alerts/dispatch', requireControlAuth, async (req: Request, res: Response) => {
