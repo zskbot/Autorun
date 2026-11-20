@@ -60,11 +60,11 @@ export async function checkoutJobRepository(input: {
   try {
     await execFileAsync('git', ['init', directory], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 });
     await execFileAsync('git', ['-C', directory, 'remote', 'add', 'origin', remote], { timeout: 30_000 });
-    await execFileAsync('git', ['-C', directory, 'fetch', '--depth=1', 'origin', `refs/heads/${branch}`], {
-      timeout: 120_000,
+    await execFileAsync('git', ['-C', directory, 'fetch', '--filter=blob:none', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], {
+      timeout: 180_000,
       maxBuffer: 4 * 1024 * 1024,
     });
-    await execFileAsync('git', ['-C', directory, 'fetch', '--depth=1', 'origin', commitSha], {
+    await execFileAsync('git', ['-C', directory, 'fetch', '--filter=blob:none', '--no-tags', 'origin', commitSha], {
       timeout: 120_000,
       maxBuffer: 4 * 1024 * 1024,
     });
@@ -72,6 +72,7 @@ export async function checkoutJobRepository(input: {
     if (fetchedSha.trim().toLowerCase() !== commitSha) {
       throw new Error('Fetched commit SHA does not match the requested commit SHA.');
     }
+    await execFileAsync('git', ['-C', directory, 'merge-base', '--is-ancestor', commitSha, `refs/remotes/origin/${branch}`], { timeout: 30_000 });
     await execFileAsync('git', ['-C', directory, 'checkout', '--detach', commitSha], { timeout: 30_000 });
     const { stdout: headSha } = await execFileAsync('git', ['-C', directory, 'rev-parse', 'HEAD'], { timeout: 30_000 });
     if (headSha.trim().toLowerCase() !== commitSha) {
