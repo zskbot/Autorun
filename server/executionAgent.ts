@@ -335,6 +335,9 @@ export async function enqueueJobRun(params: {
   if (!/^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$/.test(params.repo.trim())) {
     return { ok: false, error: 'Repository must use the owner/name GitHub format.' };
   }
+  if (!/^[A-Za-z0-9._/-]{1,200}$/.test(params.branch.trim()) || params.branch.startsWith('-') || params.branch.includes('..') || params.branch.endsWith('/')) {
+    return { ok: false, error: 'Branch name is invalid.' };
+  }
   if (!/^[a-f0-9]{40}$/i.test(params.commitSha.trim())) {
     return { ok: false, error: 'A full 40-character commit SHA is required.' };
   }
