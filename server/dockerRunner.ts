@@ -66,13 +66,10 @@ export function runnerImageFromEnv(env = process.env): string {
   return image;
 }
 
-export function dockerNetworkFromEnv(env = process.env): string {
+export function dockerNetworkFromEnv(env = process.env): 'none' {
   const network = String(env.AUTORUN_DOCKER_NETWORK || 'none').trim();
-  if (network !== 'none' && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(network)) {
-    throw new Error('Invalid Docker network name.');
-  }
-  if (network === 'host' || network === 'bridge') throw new Error('Host and default bridge networking are prohibited.');
-  return network;
+  if (network !== 'none') throw new Error('Only --network none is supported until an independently verified egress proxy is available.');
+  return 'none';
 }
 
 export function buildDockerCreateArgs(containerName: string, image: string, network: string): string[] {
@@ -80,7 +77,7 @@ export function buildDockerCreateArgs(containerName: string, image: string, netw
     'create', '--name', containerName, '--network', network,
     '--cap-drop=ALL', '--security-opt=no-new-privileges',
     '--read-only', '--user', RUNNER_UID, '--pids-limit=128',
-    '--memory=1g', '--cpus=1',
+    '--memory=1g', '--memory-swap=1g', '--cpus=1', '--ulimit', 'nofile=1024:1024', '--init',
     '--tmpfs', '/tmp:rw,nosuid,nodev,noexec,size=256m',
     '--tmpfs', '/workspace:rw,mode=1777,nosuid,nodev,size=2g',
     '--workdir', '/workspace',
@@ -89,29 +86,17 @@ export function buildDockerCreateArgs(containerName: string, image: string, netw
   ];
 }
 
-async function verifyDockerHost(requireRootless: boolean): Promise<void> {
+async function verifyDockerHost(): Promise<void> {
   const info = await runProcess('docker', ['info', '--format', '{{json .SecurityOptions}}'], 15_000);
   if (info.exitCode !== 0) throw new Error('Docker daemon is unavailable.');
-  if (requireRootless && !/rootless/i.test(info.stdout)) {
+  if (!/rootless/i.test(info.stdout)) {
     throw new Error('Runner requires a rootless Docker daemon; refusing to execute.');
   }
 }
 
-async function verifyRestrictedNetwork(network: string): Promise<void> {
-  if (network === 'none') return;
-  const result = await runProcess('docker', [
-    'network', 'inspect', '--format',
-    '{{ index .Labels "ocodejs.autorun.egress" }}', network,
-  ], 10_000);
-  if (result.exitCode !== 0 || result.stdout.trim() !== 'restricted') {
-    throw new Error('Custom Docker network is not labeled as an approved restricted-egress network.');
-  }
-}
-
 export async function assertDockerRunnerReady(): Promise<void> {
-  const network = dockerNetworkFromEnv();
-  await verifyDockerHost(process.env.AUTORUN_DOCKER_REQUIRE_ROOTLESS !== 'false');
-  await verifyRestrictedNetwork(network);
+  dockerNetworkFromEnv();
+  await verifyDockerHost();
 }
 
 async function archiveGitCheckout(sourceDir: string, containerName: string): Promise<void> {
@@ -142,8 +127,7 @@ export async function executeDockerJob(options: {
 }): Promise<{ results: DockerStepResult[]; cancelled: boolean; containerName: string }> {
   const image = runnerImageFromEnv();
   const network = dockerNetworkFromEnv();
-  await verifyDockerHost(process.env.AUTORUN_DOCKER_REQUIRE_ROOTLESS !== 'false');
-  await verifyRestrictedNetwork(network);
+  await verifyDockerHost();
 
   const containerName = `ocodejs-autorun-${randomUUID()}`;
   let created = false;
