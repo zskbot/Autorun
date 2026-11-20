@@ -1,7 +1,5 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 
 export interface DockerStep {
   id: string;
@@ -28,10 +26,10 @@ function bounded(current: string, chunk: string): string {
   return next.length <= OUTPUT_LIMIT ? next : next.slice(-OUTPUT_LIMIT);
 }
 
-function runProcess(bin: string, args: string[], timeoutMs: number, input?: NodeJS.ReadableStream): Promise<DockerStepResult> {
+function runProcess(bin: string, args: string[], timeoutMs: number): Promise<DockerStepResult> {
   return new Promise((resolve, reject) => {
     const started = Date.now();
-    const child = spawn(bin, args, { shell: false, stdio: [input ? 'pipe' : 'ignore', 'pipe', 'pipe'], env: {
+    const child = spawn(bin, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'], env: {
       PATH: process.env.PATH || '/usr/bin:/bin',
       HOME: process.env.HOME || '/tmp',
       TMPDIR: process.env.TMPDIR || '/tmp',
@@ -49,7 +47,6 @@ function runProcess(bin: string, args: string[], timeoutMs: number, input?: Node
     }, Math.min(timeoutMs, MAX_JOB_SECONDS * 1000));
     child.stdout.on('data', (chunk: Buffer) => { stdout = bounded(stdout, chunk.toString('utf8')); });
     child.stderr.on('data', (chunk: Buffer) => { stderr = bounded(stderr, chunk.toString('utf8')); });
-    if (input) input.pipe(child.stdin);
     child.on('error', (error) => { clearTimeout(timer); reject(error); });
     child.on('close', (code) => {
       clearTimeout(timer);
@@ -142,6 +139,8 @@ export async function executeDockerJob(options: {
   const containerName = `ocodejs-autorun-${randomUUID()}`;
   let created = false;
   let cancelled = false;
+  let heartbeatTimer: NodeJS.Timeout | undefined;
+  let heartbeatBusy = false;
   const args = buildDockerCreateArgs(containerName, image, network);
   try {
     const create = await runProcess('docker', args, 30_000);
@@ -150,6 +149,24 @@ export async function executeDockerJob(options: {
     const start = await runProcess('docker', ['start', containerName], 30_000);
     if (start.exitCode !== 0) throw new Error('Docker container start failed: ' + start.stderr.slice(-1000));
     await archiveGitCheckout(options.sourceDir, containerName);
+    if (options.onHeartbeat) {
+      heartbeatTimer = setInterval(async () => {
+        if (heartbeatBusy || cancelled) return;
+        heartbeatBusy = true;
+        try {
+          if (await options.onHeartbeat!()) {
+            cancelled = true;
+            await runProcess('docker', ['stop', '--time', '3', containerName], 10_000).catch(() => undefined);
+          }
+        } catch {
+          cancelled = true;
+          await runProcess('docker', ['stop', '--time', '3', containerName], 10_000).catch(() => undefined);
+        } finally {
+          heartbeatBusy = false;
+        }
+      }, 15_000);
+      heartbeatTimer.unref();
+    }
 
     const results: DockerStepResult[] = [];
     for (const step of options.steps) {
@@ -168,6 +185,7 @@ export async function executeDockerJob(options: {
     }
     return { results, cancelled, containerName };
   } finally {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
     if (created) await runProcess('docker', ['rm', '-f', containerName], 20_000).catch(() => undefined);
   }
 }
