@@ -59,7 +59,25 @@ jobs:
             alpine:3.20 sh -c 'sleep 120'
       - name: Assert Docker host configuration
         run: |
-          docker inspect autorun-boundary-test --format '{{json .HostConfig}}' > /tmp/hostconfig.json
+          docker inspect autorun-boundary-test > /tmp/inspect.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const inspected = JSON.parse(fs.readFileSync('/tmp/inspect.json', 'utf8'))[0];
+          assert.deepEqual(inspected.Mounts || [], []);
+          const config = inspected.HostConfig;
+          assert.equal(config.Privileged, false);
+          assert.equal(config.ReadonlyRootfs, true);
+          assert.equal(config.NetworkMode, 'none');
+          assert.equal(config.PidsLimit, 64);
+          assert.equal(config.Memory, 128 * 1024 * 1024);
+          assert.ok(config.CapDrop?.includes('ALL'));
+          assert.ok(config.SecurityOpt?.includes('no-new-privileges'));
+          assert.deepEqual(config.Binds || [], []);
+          assert.deepEqual(config.Devices || [], []);
+          NODE
+          exit 0
+          #
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import assert from 'node:assert/strict';
@@ -70,6 +88,11 @@ jobs:
           assert.equal(config.PidsLimit, 64);
           assert.equal(config.Memory, 128 * 1024 * 1024);
           assert.ok(config.CapDrop?.includes('ALL'));
+          assert.ok(config.SecurityOpt?.includes('no-new-privileges'));
+          assert.deepEqual(config.Binds || [], []);
+          assert.deepEqual(config.Devices || [], []);
+          const inspected = JSON.parse(require('node:fs').readFileSync('/tmp/inspect.json', 'utf8'));
+          assert.deepEqual(inspected.Mounts || [], []);
           NODE
       - name: Test container escape boundaries
         run: |
