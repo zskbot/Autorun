@@ -38,18 +38,21 @@ function runProcess(bin: string, args: string[], timeoutMs: number): Promise<Doc
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let forceKillTimer: NodeJS.Timeout | undefined;
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGTERM');
-      setTimeout(() => {
+      forceKillTimer = setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-      }, 3000).unref();
+      }, 3000);
+      forceKillTimer.unref();
     }, Math.min(timeoutMs, MAX_JOB_SECONDS * 1000));
     child.stdout.on('data', (chunk: Buffer) => { stdout = bounded(stdout, chunk.toString('utf8')); });
     child.stderr.on('data', (chunk: Buffer) => { stderr = bounded(stderr, chunk.toString('utf8')); });
-    child.on('error', (error) => { clearTimeout(timer); reject(error); });
+    child.on('error', (error) => { clearTimeout(timer); if (forceKillTimer) clearTimeout(forceKillTimer); reject(error); });
     child.on('close', (code) => {
       clearTimeout(timer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
       resolve({ stepId: '', exitCode: timedOut ? 124 : (code ?? 1), durationMs: Date.now() - started, stdout, stderr, timedOut });
     });
   });
